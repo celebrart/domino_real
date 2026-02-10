@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>DominoX - DominoX</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="logo">Domino<span>X</span></div>
+      <div class="header-right">
+        <button id="btnTheme" class="icon-btn" title="Tema claro/escuro">🌓</button>
+        <button id="btnSettings" class="icon-btn" title="Configurações">⚙️</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Painel lateral -->
+      <aside class="side-panel">
+        <section class="panel-section">
+          <h2>Modo de Jogo</h2>
+          <div class="option-group">
+            <label class="radio-pill">
+              <input type="radio" name="mode" value="solo" checked />
+              <span>Você x CPU</span>
+            </label>
+            <label class="radio-pill disabled">
+              <input type="radio" name="mode" value="local" disabled />
+              <span>Local 2 Jogadores<br><small>(em breve)</small></span>
+            </label>
+            <label class="radio-pill disabled">
+              <input type="radio" name="mode" value="online" disabled />
+              <span>Online<br><small>(em breve)</small></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>Estilo das Peças</h2>
+          <div class="option-group" id="skinSelector">
+            <button data-skin="classic" class="chip chip-active">Clássico</button>
+            <button data-skin="neon" class="chip">Neon</button>
+            <button data-skin="wood" class="chip">Madeira</button>
+          </div>
+        </section>
+
+        <section class="panel-section score-panel">
+          <h2>Placar da Partida</h2>
+          <div class="score-row">
+            <span>Você</span>
+            <span id="scorePlayer">0</span>
+          </div>
+          <div class="score-row">
+            <span>CPU</span>
+            <span id="scoreCPU">0</span>
+          </div>
+          <div class="score-goal">
+            Jogo até 6 pontos (batida 1, tranca 1, carroça/“lá e lô” pode ser evoluído depois).
+          </div>
+          <button id="btnNewMatch" class="primary-btn full">Nova Partida</button>
+        </section>
+
+        <section class="panel-section">
+          <h2>Histórico</h2>
+          <div id="historyLog" class="history-log"></div>
+        </section>
+      </aside>
+
+      <!-- Mesa central -->
+      <section class="board-wrapper">
+        <div class="board" id="board">
+          <div class="board-overlay" id="boardOverlay">
+            <div class="overlay-content">
+              <h2 id="overlayTitle">DominoX</h2>
+              <p id="overlayMessage">Clique em “Nova Partida” para começar.</p>
+              <button id="overlayButton" class="primary-btn">Começar</button>
+            </div>
+          </div>
+
+          <div class="player-area cpu-area">
+            <div class="player-header">
+              <span>CPU</span>
+              <span class="tag">Pensando...</span>
+            </div>
+            <div id="cpuHand" class="hand hand-cpu"></div>
+          </div>
+
+          <div class="table-area">
+            <div class="table-line" id="tableLine"></div>
+          </div>
+
+          <div class="player-area user-area">
+            <div class="player-header">
+              <span>Você</span>
+              <span id="playerHint" class="tag tag-soft">Sua vez</span>
+            </div>
+            <div id="playerHand" class="hand hand-player"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Modal de configurações -->
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <header class="modal-header">
+          <h2>Configurações</h2>
+          <button id="btnCloseSettings" class="icon-btn">✕</button>
+        </header>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>Alvo de pontos por jogo</label>
+            <input type="number" id="inputTargetScore" min="1" max="20" value="6" />
+            <small>Clássico em muitas mesas brasileiras: 6 ou 10 pontos por partida.[web:6][web:16]</small>
+          </div>
+          <div class="form-row">
+            <label>Dificuldade da CPU</label>
+            <select id="selectDifficulty">
+              <option value="easy">Fácil (aleatório inteligente)</option>
+              <option value="normal" selected>Normal (bloqueia mais)</option>
+              <option value="hard">Difícil (conta peças)</option>
+            </select>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button id="btnSaveSettings" class="primary-btn">Salvar</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
