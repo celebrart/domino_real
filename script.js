@@ -13,7 +13,17 @@ let targetScore = 6;
 let difficulty = "normal";
 let skin = "classic";
 
+// Drag & drop state
+let draggingPiece = null;
+let draggingEl = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
 // ---------- Utilidades ----------
+
+const $ = (sel) => document.querySelector(sel);
 
 function createDeck() {
   const d = [];
@@ -47,8 +57,6 @@ function clone(obj) {
 }
 
 // ---------- UI helpers ----------
-
-const $ = (sel) => document.querySelector(sel);
 
 function showToast(msg, duration = 2200) {
   const toast = $("#toast");
@@ -106,7 +114,7 @@ function pipPattern(value) {
     });
   };
 
-  // índices de 0 a 5 (3x2)
+  // índices 0..5 (3x2)
   switch (value) {
     case 0:
       break;
@@ -123,7 +131,7 @@ function pipPattern(value) {
       add([0, 2, 3, 5]);
       break;
     case 5:
-      add([0, 2, 2, 3, 5]); // “dois” no meio reforça visualmente a cruz
+      add([0, 2, 2, 3, 5]);
       break;
     case 6:
       add([0, 1, 2, 3, 4, 5]);
@@ -134,7 +142,7 @@ function pipPattern(value) {
 }
 
 function createDominoElement(piece, options = {}) {
-  const { hidden = false, clickable = false, onClick, skinOverride } = options;
+  const { hidden = false, clickable = false, skinOverride } = options;
   const el = document.createElement("div");
   el.className = "domino";
   el.dataset.id = piece.id;
@@ -144,7 +152,6 @@ function createDominoElement(piece, options = {}) {
   if (finalSkin === "wood") el.classList.add("skin-wood");
 
   if (hidden) {
-    // verso para CPU
     const back = document.createElement("div");
     back.className = "domino-back";
     el.appendChild(back);
@@ -170,10 +177,19 @@ function createDominoElement(piece, options = {}) {
   }
 
   if (clickable) {
-    el.classList.add("domino-clickable");
-    el.addEventListener("click", () => {
-      if (typeof onClick === "function") onClick(piece);
+    // Drag & drop com mouse
+    el.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      startDrag(piece, el, ev);
     });
+    // Drag & drop com touch
+    el.addEventListener(
+      "touchstart",
+      (ev) => {
+        startDrag(piece, el, ev);
+      },
+      { passive: false }
+    );
   }
 
   return el;
@@ -190,7 +206,6 @@ function renderHands() {
     const el = createDominoElement(p, {
       hidden: false,
       clickable,
-      onClick: (piece) => handlePlayerClick(piece),
     });
     playerHandEl.appendChild(el);
   });
@@ -203,7 +218,13 @@ function renderHands() {
 
 function renderTable() {
   const tableLine = $("#tableLine");
+  // manter dropzones (primeiros filhos), então só limpa as peças
+  const dropLeft = $("#dropLeft");
+  const dropRight = $("#dropRight");
   tableLine.innerHTML = "";
+  tableLine.appendChild(dropLeft);
+  tableLine.appendChild(dropRight);
+
   table.forEach((piece) => {
     const el = createDominoElement(piece, { hidden: false });
     el.classList.add("domino-played");
@@ -228,13 +249,12 @@ function getEnds() {
 function placePiece(piece, side) {
   if (table.length === 0) {
     table.push({ a: piece.a, b: piece.b, id: piece.id });
-    return;
+    return true;
   }
   const { left, right } = getEnds();
   const newPiece = clone(piece);
 
   if (side === "left") {
-    // encaixar no lado esquerdo
     if (newPiece.b === left) {
       // ok
     } else if (newPiece.a === left) {
@@ -246,7 +266,6 @@ function placePiece(piece, side) {
     }
     table.unshift(newPiece);
   } else {
-    // lado direito
     if (newPiece.a === right) {
       // ok
     } else if (newPiece.b === right) {
@@ -287,7 +306,6 @@ function startRound() {
   }
   buyingPile = [...deck];
 
-  // quem tem o 6-6 começa; se ninguém tiver, usa maior dupla.[web:6][web:16]
   const all = [...playerHand, ...cpuHand];
   const doubles = all.filter(isDouble).sort((a, b) => calcPips(b) - calcPips(a));
   let starter = null;
@@ -298,7 +316,6 @@ function startRound() {
     if (inPlayer) starter = "player";
     else if (inCpu) starter = "cpu";
   } else {
-    // fallback: maior peça pela soma.[web:16]
     const sorted = all.slice().sort((a, b) => calcPips(b) - calcPips(a));
     const best = sorted[0].id;
     const inPlayer = playerHand.find((p) => p.id === best);
@@ -315,7 +332,7 @@ function startRound() {
   if (currentPlayer === "cpu") {
     cpuTurn();
   } else {
-    showToast("Você começa! Jogue uma peça.");
+    showToast("Você começa! Arraste uma peça até a ponta da mesa.");
   }
 }
 
@@ -334,38 +351,167 @@ function drawFromPile(hand) {
   return piece;
 }
 
-// ---------- Turno do jogador ----------
+// ---------- Drag & Drop (mouse + touch) ----------[web:23][web:22]
 
-function handlePlayerClick(piece) {
+function getEventPoint(e) {
+  if (e.touches && e.touches[0]) {
+    return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+  if (e.changedTouches && e.changedTouches[0]) {
+    return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+  }
+  return { x: e.clientX, y: e.clientY };
+}
+
+function startDrag(piece, el, startEvent) {
   if (gameOver || currentPlayer !== "player") return;
+  draggingPiece = piece;
+  draggingEl = el;
 
-  // se a mesa está vazia, joga direto no centro
+  const { x, y } = getEventPoint(startEvent);
+
+  dragStartX = x;
+  dragStartY = y;
+  const rect = el.getBoundingClientRect();
+  dragOffsetX = x - rect.left;
+  dragOffsetY = y - rect.top;
+
+  el.classList.add("dragging");
+  el.style.position = "fixed";
+  el.style.pointerEvents = "none";
+
+  moveDrag(startEvent);
+
+  updateDropzonesVisibility(piece);
+
+  document.addEventListener("mousemove", moveDrag);
+  document.addEventListener("mouseup", endDrag);
+  document.addEventListener("touchmove", moveDrag, { passive: false });
+  document.addEventListener("touchend", endDrag);
+}
+
+function moveDrag(e) {
+  if (!draggingEl) return;
+  if (e.cancelable) e.preventDefault();
+  const { x, y } = getEventPoint(e);
+  draggingEl.style.left = x - dragOffsetX + "px";
+  draggingEl.style.top = y - dragOffsetY + "px";
+
+  highlightDropzones(x, y);
+}
+
+function endDrag(e) {
+  if (!draggingEl || !draggingPiece) {
+    cleanupDrag();
+    return;
+  }
+
+  const { x, y } = getEventPoint(e);
+  const dropLeft = $("#dropLeft");
+  const dropRight = $("#dropRight");
+  const rectL = dropLeft.getBoundingClientRect();
+  const rectR = dropRight.getBoundingClientRect();
+
+  let played = false;
+
+  if (pointInRect(x, y, rectL) && dropLeft.classList.contains("active")) {
+    played = tryPlayDraggedPiece("left");
+  } else if (pointInRect(x, y, rectR) && dropRight.classList.contains("active")) {
+    played = tryPlayDraggedPiece("right");
+  }
+
+  if (!played && table.length === 0) {
+    played = tryPlayDraggedPiece("right");
+  }
+
+  if (!played) {
+    showToast("Solte a peça próximo à ponta que encaixa.");
+  }
+
+  cleanupDrag();
+}
+
+function cleanupDrag() {
+  if (draggingEl) {
+    draggingEl.classList.remove("dragging");
+    draggingEl.style.position = "";
+    draggingEl.style.left = "";
+    draggingEl.style.top = "";
+    draggingEl.style.pointerEvents = "";
+  }
+  draggingEl = null;
+  draggingPiece = null;
+
+  disableDropzones();
+
+  document.removeEventListener("mousemove", moveDrag);
+  document.removeEventListener("mouseup", endDrag);
+  document.removeEventListener("touchmove", moveDrag);
+  document.removeEventListener("touchend", endDrag);
+}
+
+function pointInRect(x, y, rect) {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function updateDropzonesVisibility(piece) {
+  const dropLeft = $("#dropLeft");
+  const dropRight = $("#dropRight");
+  dropLeft.classList.remove("active");
+  dropRight.classList.remove("active");
+
   if (table.length === 0) {
-    table.push(piece);
-    playerHand = playerHand.filter((p) => p.id !== piece.id);
-    logHistory(`Você iniciou com ${piece.a}-${piece.b}.`);
-    afterMove("player");
+    dropLeft.classList.add("active");
+    dropRight.classList.add("active");
     return;
   }
 
   const { left, right } = getEnds();
-  if (!canPlay(piece, left, right)) {
-    showToast("Essa peça não encaixa, tente outra.");
-    return;
-  }
-
-  // escolha automática de lado: tenta bloquear mais
-  let side = "right";
-  if (piece.a === left || piece.b === left) side = "left";
-
-  placePiece(piece, side);
-  playerHand = playerHand.filter((p) => p.id !== piece.id);
-  logHistory(`Você jogou ${piece.a}-${piece.b} no lado ${side === "left" ? "esquerdo" : "direito"}.`);
-
-  afterMove("player");
+  if (piece.a === left || piece.b === left) dropLeft.classList.add("active");
+  if (piece.a === right || piece.b === right) dropRight.classList.add("active");
 }
 
-// ---------- Turno da CPU (IA simples) ----------
+function disableDropzones() {
+  $("#dropLeft").classList.remove("active");
+  $("#dropRight").classList.remove("active");
+}
+
+function highlightDropzones(x, y) {
+  const dropLeft = $("#dropLeft");
+  const dropRight = $("#dropRight");
+  [dropLeft, dropRight].forEach((dz) => {
+    if (!dz.classList.contains("active")) return;
+    const rect = dz.getBoundingClientRect();
+    if (pointInRect(x, y, rect)) {
+      dz.style.boxShadow = "0 0 0 2px rgba(85, 239, 196, 0.8)";
+    } else {
+      dz.style.boxShadow = "0 0 0 1px rgba(116, 185, 255, 0.65)";
+    }
+  });
+}
+
+function tryPlayDraggedPiece(side) {
+  const piece = draggingPiece;
+  if (!piece) return false;
+
+  if (table.length === 0) {
+    table.push(piece);
+  } else {
+    const ok = placePiece(piece, side);
+    if (!ok) return false;
+  }
+
+  playerHand = playerHand.filter((p) => p.id !== piece.id);
+  logHistory(
+    `Você jogou ${piece.a}-${piece.b} no lado ${
+      side === "left" ? "esquerdo" : "direito"
+    } via arraste.`
+  );
+  afterMove("player");
+  return true;
+}
+
+// ---------- Turno da CPU ----------
 
 function cpuTurn() {
   if (gameOver) return;
@@ -381,13 +527,11 @@ function cpuTurn() {
       logHistory(`CPU jogou ${piece.a}-${piece.b} no lado ${side === "left" ? "esquerdo" : "direito"}.`);
       afterMove("cpu");
     } else {
-      // não tem jogada: tenta comprar
       const drawn = drawFromPile(cpuHand);
       if (drawn) {
         logHistory(`CPU comprou uma peça.`);
         renderHands();
-        // tentar novamente
-        setTimeout(cpuTurn, 550);
+        setTimeout(cpuTurn, difficulty === "easy" ? 450 : difficulty === "normal" ? 650 : 900);
       } else {
         logHistory("CPU passa a vez (sem jogadas e sem peças para comprar).");
         passTurn("cpu");
@@ -399,7 +543,6 @@ function cpuTurn() {
 function pickCpuMove() {
   const hand = cpuHand.slice();
   if (table.length === 0) {
-    // joga a maior peça (tende a soltar peso cedo)
     hand.sort((a, b) => calcPips(b) - calcPips(a));
     const piece = hand[0];
     return { piece, side: "right" };
@@ -409,9 +552,7 @@ function pickCpuMove() {
   const candidates = hand.filter((p) => canPlay(p, left, right));
   if (!candidates.length) return null;
 
-  // heurísticas por dificuldade
   if (difficulty === "easy") {
-    // qualquer compatível, com leve preferência por não duplicar numerais
     const shuffled = shuffle(candidates);
     return {
       piece: shuffled[0],
@@ -420,7 +561,6 @@ function pickCpuMove() {
   }
 
   if (difficulty === "normal") {
-    // tenta bloquear: joga peça que aparece mais vezes na mão, em um lado que aumente chance de trancar.
     const freq = {};
     hand.forEach((p) => {
       freq[p.a] = (freq[p.a] || 0) + 1;
@@ -430,7 +570,6 @@ function pickCpuMove() {
     candidates.sort((a, b) => {
       const fa = (freq[a.a] || 0) + (freq[a.b] || 0);
       const fb = (freq[b.a] || 0) + (freq[b.b] || 0);
-      // mais frequente primeiro, depois maior soma de pips
       if (fb !== fa) return fb - fa;
       return calcPips(b) - calcPips(a);
     });
@@ -445,7 +584,6 @@ function pickCpuMove() {
     return { piece, side };
   }
 
-  // difícil: similar ao normal, mas evita liberar números que a CPU tem pouco
   const freq = {};
   const allSeen = [...cpuHand, ...table];
   allSeen.forEach((p) => {
@@ -456,9 +594,8 @@ function pickCpuMove() {
   candidates.sort((a, b) => {
     const fa = (freq[a.a] || 0) + (freq[a.b] || 0);
     const fb = (freq[b.a] || 0) + (freq[b.b] || 0);
-    // menor frequência primeiro (guarda números “raro”)
     if (fa !== fb) return fa - fb;
-    return calcPips(a) - calcPips(b); // solta peças mais “leves”
+    return calcPips(a) - calcPips(b);
   });
 
   const piece = candidates[0];
@@ -478,7 +615,6 @@ function afterMove(player) {
   renderTable();
   updateHUD();
 
-  // vitória por esvaziar mão.[web:13]
   const hand = player === "player" ? playerHand : cpuHand;
   if (hand.length === 0) {
     const winner = player;
@@ -486,7 +622,6 @@ function afterMove(player) {
     return;
   }
 
-  // verificar tranca: ninguém consegue jogar e não há cemitério
   const noMovesPlayer = !hasPlayable(playerHand);
   const noMovesCPU = !hasPlayable(cpuHand);
   if (noMovesPlayer && noMovesCPU && buyingPile.length === 0) {
@@ -494,7 +629,6 @@ function afterMove(player) {
     return;
   }
 
-  // passa a vez
   if (player === "player") {
     currentPlayer = "cpu";
     updateHUD();
@@ -502,7 +636,7 @@ function afterMove(player) {
   } else {
     currentPlayer = "player";
     updateHUD();
-    showToast("Sua vez!");
+    showToast("Sua vez! Arraste uma peça até a ponta da mesa.");
   }
 }
 
@@ -514,7 +648,7 @@ function passTurn(player) {
   } else {
     currentPlayer = "player";
     updateHUD();
-    showToast("Sua vez!");
+    showToast("Sua vez! Arraste uma peça até a ponta da mesa.");
   }
 }
 
@@ -529,7 +663,7 @@ function endRound(winner, type) {
   if (type === "batida") {
     if (winner === "player") {
       ptsPlayer = sumHand(cpuHand);
-      scores.player += 1; // 1 ponto por batida simples (configurável).[web:6]
+      scores.player += 1; // 1 ponto por batida simples.[web:6]
       msg = `Você bateu! Ganhou ${ptsPlayer} pontos em pedras do adversário (placar +1).`;
     } else {
       ptsCPU = sumHand(playerHand);
@@ -562,7 +696,12 @@ function endRound(winner, type) {
     overlayTitle = "CPU venceu a partida.";
     overlayMsg += " Ela alcançou a meta de pontos.";
   } else {
-    overlayTitle = winner === "player" ? "Você venceu a rodada!" : winner === "cpu" ? "CPU venceu a rodada." : "Rodada trancada";
+    overlayTitle =
+      winner === "player"
+        ? "Você venceu a rodada!"
+        : winner === "cpu"
+        ? "CPU venceu a rodada."
+        : "Rodada trancada";
   }
 
   setOverlay(true, overlayTitle, overlayMsg, "Próxima rodada");
@@ -662,7 +801,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setOverlay(
     true,
     "DominoX",
-    "Dominó com regras brasileiras, IA inteligente e animações suaves. Clique abaixo para começar.",
+    "Dominó com regras brasileiras, IA inteligente e animações suaves. Arraste as peças até as pontas da mesa para jogar.",
     "Iniciar partida"
   );
 });
